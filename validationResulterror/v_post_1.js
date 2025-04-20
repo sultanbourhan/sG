@@ -168,6 +168,16 @@ exports.createPost_4_V = [
   validationMiddiel,
 ]
 
+exports.createPost_V = [
+  body().custom((body) => {
+    if (!body.writing && !body.img_post && !body.video_post) {
+      throw new Error("The entry must contain at least one text, image, or video.");
+    }
+    return true;
+  }),
+  validationMiddiel,
+];
+
 exports.create_post_comments_V = [
   check("comment")
   .notEmpty().whitelist("A comment must be added.")

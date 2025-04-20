@@ -2,6 +2,7 @@ const Post_1 = require("../models/post_1_Models");
 const Post_2 = require("../models/post_2_Models");
 const Post_3 = require("../models/post_3_Models");
 const Post_4 = require("../models/post_4_Models");
+const Post = require("../models/post_Models");
 const ApiError = require("../ApiError");
 
 const asyncHandler = require("express-async-handler");
@@ -13,15 +14,41 @@ const multer = require("multer");
 const sharp = require("sharp");
 const { v4: uuidv4 } = require("uuid");
 
+const fs = require("fs");
+
+fs.writeFile("example.txt", "Hello World!", (err) => {
+  if (err) throw err;
+  console.log("File created successfully!");
+});
+
+// const multerStorage = multer.memoryStorage();
+
+// const multerFilter = (req, file, cb) => {
+//   if (file.mimetype.startsWith("image")) {
+//     cb(null, true);
+//   } else {
+//     cb(new ApiError("The uploaded file is not an image", 400), false);
+//   }
+// };
+
+// const multerFilterVideos = (req, file, cb) => {
+//   if (file.mimetype.startsWith("video")) {
+//     cb(null, true);
+//   } else {
+//     cb(new ApiError("The uploaded file is not a video", 400), false);
+//   }
+// };
+
 const multerStorage = multer.memoryStorage();
 
 const multerFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith("image")) {
+  if (file.mimetype.startsWith("image") || file.mimetype.startsWith("video")) {
     cb(null, true);
   } else {
-    cb(new ApiError("The uploaded file is not an image", 400), false);
+    cb(new ApiError("The uploaded file is not an image or a video", 400), false);
   }
 };
+
 
 const upload = multer({
   storage: multerStorage,
@@ -36,10 +63,52 @@ const upload = multer({
   { name: "question_2_img", maxCount: 1 },
   { name: "question_3_img", maxCount: 1 },
   { name: "question_4_img", maxCount: 1 },
+  { name: "img_post", maxCount: 1 },
+  { name: "video_post", maxCount: 1 },
 ]);
+
+
+// exports.uploadVideos = multer({
+//   storage: multer.memoryStorage(),
+//   fileFilter: multerFilterVideos,
+// }).fields([
+//   { name: "video_post", maxCount: 1 },
+// ]);
+
+
+exports.resizeVideo_video_post = asyncHandler(async (req, res, next) => {
+  if (req.files && req.files.video_post) {
+    const file = req.files.video_post[0];
+    const filename = `postVideo_1-${uuidv4()}-${Date.now()}.mp4`;
+    const filePath = `videos/posts/${filename}`;
+
+    // حفظ الفيديو
+    await fs.promises.writeFile(filePath, file.buffer);
+
+    req.body.video_post = filename;
+  }
+  next();
+});
+
+
 
 // تستخدم .fields لذا احذف imgcompany و imgcompanyLogo
 exports.uploadImages = upload;
+
+
+exports.resizeImg_post_img = asyncHandler(async (req, res, next) => {
+  if (req.files && req.files.img_post) {
+    const file = req.files.img_post[0]; // يأخذ أول ملف في المصفوفة
+    const filename = `img_post-${uuidv4()}-${Date.now()}.jpeg`;
+    await sharp(file.buffer)
+      .toFormat("jpeg")
+      .jpeg({ quality: 90 })
+      .toFile(`image/posts/${filename}`);
+
+    req.body.img_post = filename;
+  }
+  next();
+});
 
 exports.resizeImg_postImage_1 = asyncHandler(async (req, res, next) => {
   if (req.files && req.files.postImage_1) {
@@ -161,6 +230,21 @@ exports.resizeImg_question_4_img = asyncHandler(async (req, res, next) => {
   }
   next();
 });
+
+
+// =====================================================================
+
+
+exports.createPost = asyncHandler(async (req, res, next) => {
+  const post = await Post.create({
+    user: req.user._id,
+    writing : req.body.writing,
+    img_post: req.body.img_post,
+    video_post : req.body.video_post
+  });
+
+  res.status(200).json({ data: post });
+})
 
 // =========================================================================
 
@@ -310,6 +394,7 @@ exports.getAllPosts = asyncHandler(async (req, res, next) => {
     const posts2 = await Post_2.find();
     const posts3 = await Post_3.find();
     const posts4 = await Post_4.find();
+    const posts = await Post.find();
 
     // دمج جميع البوستات في مصفوفة واحدة
     let allPosts = [
@@ -317,6 +402,7 @@ exports.getAllPosts = asyncHandler(async (req, res, next) => {
       ...posts2,
       ...posts3,
       ...posts4,
+      ...posts,
     ];
 
     // فرز البوستات حسب تاريخ الإنشاء من الأحدث إلى الأقدم
@@ -341,6 +427,7 @@ exports.getUserPosts = asyncHandler(async (req, res, next) => {
     const posts2 = await Post_2.find({ user: userId });
     const posts3 = await Post_3.find({ user: userId });
     const posts4 = await Post_4.find({ user: userId });
+    const posts = await Post.find({ user: userId });
 
     // دمج جميع البوستات في مصفوفة واحدة
     let userPosts = [
@@ -348,6 +435,41 @@ exports.getUserPosts = asyncHandler(async (req, res, next) => {
       ...posts2,
       ...posts3,
       ...posts4,
+      ...posts,
+    ];
+
+    // فرز البوستات حسب تاريخ الإنشاء من الأحدث إلى الأقدم
+    userPosts = userPosts.sort((a, b) => b.createdAt - a.createdAt);
+
+    // إرسال البيانات كاستجابة
+    res.status(200).json({ data: userPosts });
+  } catch (error) {
+    next(error); // معالجة أي خطأ وتمريره إلى الـ Middleware
+  }
+});
+
+
+// ===================================================================
+
+
+exports.get_my_Posts = asyncHandler(async (req, res, next) => {
+  try {
+    const userId = req.user._id; // جلب معرف المستخدم من الطلب
+
+    // جلب البوستات لكل سكيمة بناءً على معرف المستخدم
+    const posts1 = await Post_1.find({ user: userId });
+    const posts2 = await Post_2.find({ user: userId });
+    const posts3 = await Post_3.find({ user: userId });
+    const posts4 = await Post_4.find({ user: userId });
+    const posts = await Post.find({ user: userId });
+
+    // دمج جميع البوستات في مصفوفة واحدة
+    let userPosts = [
+      ...posts1,
+      ...posts2,
+      ...posts3,
+      ...posts4,
+      ...posts,
     ];
 
     // فرز البوستات حسب تاريخ الإنشاء من الأحدث إلى الأقدم
@@ -388,6 +510,11 @@ exports.deletePost = asyncHandler(async (req, res, next) => {
       if (post) schema = "Post_4";
     }
 
+    if (!post) {
+      post = await Post.findById(id);
+      if (post) schema = "post";
+    }
+
     // التحقق من وجود البوست
     if (!post) {
       return res.status(404).json({ message: "Post not found." });
@@ -413,7 +540,7 @@ exports.deletePost = asyncHandler(async (req, res, next) => {
 // =================================================================
 
 
-const schemas = [Post_1, Post_2, Post_3, Post_4]; // جميع السكيمات مجمعة في مصفوفة
+const schemas = [Post_1, Post_2, Post_3, Post_4, Post]; // جميع السكيمات مجمعة في مصفوفة
 
 exports.create_post_comments = asyncHandler(async (req, res, next) => {
   const { id } = req.params; // معرف البوست من طلب العميل

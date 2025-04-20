@@ -76,6 +76,7 @@ app.use(session({
 
 app.use(express.json({ limit: "10000kb" }));
 app.use(express.static(path.join(__dirname, "image")));
+app.use(express.static(path.join(__dirname, "videos")));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
